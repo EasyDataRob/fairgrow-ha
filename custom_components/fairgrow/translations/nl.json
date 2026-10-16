@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Koppel met FairGrow",
+        "description": "Open op {site} het onderdeel Home Assistant en klik op **Maak een koppelcode**. Plak de acht tekens hier. De code werkt een keer en blijft een kwartier geldig.",
+        "data": {
+          "code": "Koppelcode"
+        },
+        "data_description": {
+          "code": "Bijvoorbeeld 7K4M-2QP9. Hoofdletters of kleine letters maakt niet uit."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Geavanceerd",
+            "data": {
+              "url": "Adres van FairGrow"
+            },
+            "data_description": {
+              "url": "Verander dit alleen als FairGrow je dat vraagt."
+            }
+          }
+        }
+      },
+      "entities": {
+        "title": "Kies wat je deelt",
+        "description": "Vink de sensoren aan die FairGrow mag zien. Alleen deze metingen verlaten je Home Assistant. Later aanpassen kan met Configureren.",
+        "data": {
+          "entities": "Sensoren om te delen"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Koppel FairGrow opnieuw",
+        "description": "FairGrow accepteert deze koppeling niet meer, bijvoorbeeld omdat hij op fairgrow.eu is losgekoppeld. Maak daar een nieuwe koppelcode en plak hem hier. Je keuze van sensoren blijft staan.",
+        "data": {
+          "code": "Koppelcode"
+        }
+      }
+    },
+    "error": {
+      "invalid_code": "FairGrow kent deze code niet. Controleer de acht tekens, of maak een nieuwe code.",
+      "code_used": "Deze code is al gebruikt. Maak een nieuwe.",
+      "code_expired": "Deze code is verlopen. Maak een nieuwe.",
+      "bridge_code": "Deze code is gemaakt voor de FairGrow-brug. Maak een nieuwe code met de knop voor Home Assistant.",
+      "too_many_attempts": "Te veel pogingen. Wacht een kwartier en probeer het opnieuw.",
+      "cannot_connect": "FairGrow is niet bereikbaar. Controleer de internetverbinding van Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Deze koppeling met FairGrow bestaat al.",
+      "reauth_successful": "FairGrow is weer gekoppeld."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Gedeelde sensoren",
+        "description": "Vink de sensoren aan die FairGrow mag zien. Sensoren die je uitvinkt stoppen met sturen; hun historie op FairGrow blijft staan.",
+        "data": {
+          "entities": "Sensoren om te delen"
+        }
+      }
+    }
+  }
+}

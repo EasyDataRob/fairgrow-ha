@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to FairGrow",
+        "description": "On {site}, open the Home Assistant section and click **Create pairing code**. Paste the eight characters here. The code works once and lasts fifteen minutes.",
+        "data": {
+          "code": "Pairing code"
+        },
+        "data_description": {
+          "code": "For example 7K4M-2QP9. Upper or lower case does not matter."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced",
+            "data": {
+              "url": "FairGrow address"
+            },
+            "data_description": {
+              "url": "Only change this if FairGrow told you to."
+            }
+          }
+        }
+      },
+      "entities": {
+        "title": "Choose what you share",
+        "description": "Tick the sensors FairGrow may see. Only these readings leave your Home Assistant. You can change this later with Configure.",
+        "data": {
+          "entities": "Sensors to share"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Pair FairGrow again",
+        "description": "FairGrow no longer accepts this connection, for example because it was disconnected on fairgrow.eu. Create a new pairing code there and paste it here. Your choice of sensors stays.",
+        "data": {
+          "code": "Pairing code"
+        }
+      }
+    },
+    "error": {
+      "invalid_code": "FairGrow does not know this code. Check the eight characters, or create a new code.",
+      "code_used": "This code has already been used. Create a new one.",
+      "code_expired": "This code has expired. Create a new one.",
+      "bridge_code": "This code was made for the FairGrow bridge. Create a new code with the Home Assistant button.",
+      "too_many_attempts": "Too many attempts. Wait a quarter of an hour and try again.",
+      "cannot_connect": "Cannot reach FairGrow. Check the internet connection of Home Assistant."
+    },
+    "abort": {
+      "already_configured": "This FairGrow connection already exists.",
+      "reauth_successful": "FairGrow is connected again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shared sensors",
+        "description": "Tick the sensors FairGrow may see. Sensors you untick stop sending; their history on FairGrow stays.",
+        "data": {
+          "entities": "Sensors to share"
+        }
+      }
+    }
+  }
+}

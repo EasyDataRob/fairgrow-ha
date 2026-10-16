@@ -1,0 +1,13 @@
+{
+  "domain": "fairgrow",
+  "name": "FairGrow",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://fairgrow.eu/connect-your-own-zigbee-coordinator/",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://fairgrow.eu/contact/",
+  "requirements": [],
+  "version": "0.1.0"
+}
