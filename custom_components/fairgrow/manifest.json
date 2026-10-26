@@ -1,13 +1,15 @@
 {
   "domain": "fairgrow",
   "name": "FairGrow",
-  "codeowners": [],
+  "codeowners": [
+    "@EasyDataRob"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://fairgrow.eu/connect-your-own-zigbee-coordinator/",
   "integration_type": "service",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://fairgrow.eu/contact/",
+  "issue_tracker": "https://github.com/EasyDataRob/fairgrow-ha/issues",
   "requirements": [],
   "version": "0.1.0"
 }

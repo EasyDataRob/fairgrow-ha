@@ -22,10 +22,15 @@ fields and your automations.
 
 ### 1. Add FairGrow to HACS
 
+The quickest way is this button. It opens HACS in your own Home Assistant with FairGrow filled in:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=EasyDataRob&repository=fairgrow-ha&category=integration)
+
+Or by hand:
+
 1. In Home Assistant, open **HACS** in the side bar.
 2. Click the **three dots** at the top right and choose **Custom repositories**.
-3. In the field **Repository**, paste the address of this page (the GitHub address you see in
-   your browser right now).
+3. In the field **Repository**, paste `https://github.com/EasyDataRob/fairgrow-ha`.
 4. As **Type**, choose **Integration**. Click **Add**, then close the window.
 5. Search for **FairGrow** in HACS, open it and click **Download**. Confirm with **Download**.
 6. Restart Home Assistant: **Settings**, then the three dots at the top right, **Restart Home
@@ -34,9 +39,10 @@ fields and your automations.
 ### 2. Get your pairing code on FairGrow
 
 1. Log in on <https://fairgrow.eu>.
-2. Go to **Connect your own Zigbee coordinator** (in the knowledge base) and find the part
-   **Already running Home Assistant?**
-3. Click **Create pairing code**. You get eight characters, for example `7K4M-2QP9`.
+2. Open **Sensors** in the top bar, choose **Add Zigbee coordinator** and pick **Home Assistant**
+   at the top of the list. (The same button is on the knowledge base page
+   [Connect your own Zigbee coordinator](https://fairgrow.eu/connect-your-own-zigbee-coordinator/).)
+3. Click **Make a pairing code**. You get eight characters, for example `7K4M-2QP9`.
    The code works once and lasts fifteen minutes.
 
 ### 3. Paste the code in Home Assistant
@@ -78,12 +84,14 @@ Your history on FairGrow stays in both cases.
 ## Problems?
 
 - **"FairGrow does not know this code"**: check the eight characters, or create a new code.
-- **"This code was made for the FairGrow bridge"**: create the code with the Home Assistant button,
-  not under Add coordinator.
+- **"This code was made for the FairGrow bridge"**: under Add Zigbee coordinator, pick
+  **Home Assistant** at the top of the list before you make the code, not ZHA or Zigbee2MQTT
+  (those are for the separate bridge).
 - **A sensor does not appear on FairGrow**: FairGrow uses sensors with a device class it knows.
   The list of skipped sensors and the reason is in the diagnostics: **Settings**, **Devices &
   services**, **FairGrow**, three dots, **Download diagnostics**. The diagnostics never contain
-  your token. Send that file to us via <https://fairgrow.eu/contact/>.
+  your token. Open an [issue](https://github.com/EasyDataRob/fairgrow-ha/issues) or send that file to us via
+  <https://fairgrow.eu/contact/>.
 
 ## For developers
 
