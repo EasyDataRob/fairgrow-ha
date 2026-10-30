@@ -14,19 +14,31 @@ fields and your automations.
 ## What you need
 
 - Home Assistant 2025.1 or newer.
-- [HACS](https://www.hacs.xyz/) (the Home Assistant Community Store). Not installed yet? Follow
-  the steps on <https://www.hacs.xyz/docs/use/download/download/>.
+- On Home Assistant 2026.11 or newer nothing else: the built-in **Marketplace** installs FairGrow.
+  On older versions you need [HACS](https://www.hacs.xyz/) (the Home Assistant Community Store).
+  Not installed yet? Follow the steps on <https://www.hacs.xyz/docs/use/download/download/>.
 - A FairGrow account on <https://fairgrow.eu>.
 
 ## Install, step by step
 
-### 1. Add FairGrow to HACS
+### 1. Add FairGrow to Home Assistant
 
-The quickest way is this button. It opens HACS in your own Home Assistant with FairGrow filled in:
+The quickest way is this button. It opens your own Home Assistant with FairGrow filled in: the
+Marketplace on 2026.11 or newer, HACS on older versions.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=EasyDataRob&repository=fairgrow-ha&category=integration)
 
-Or by hand:
+Or by hand on **Home Assistant 2026.11 or newer** (Marketplace):
+
+1. Go to **Settings**, **Marketplace**. The first time, confirm the notice about third-party code.
+2. Choose **Add from link** and paste `https://github.com/EasyDataRob/fairgrow-ha`.
+3. Home Assistant asks you to connect GitHub: it shows a code, you enter that code on
+   github.com and approve the request. Home Assistant only reads public information with it.
+4. FairGrow is now in the list. Open the three dots next to it and choose **Install**.
+   No restart needed: Home Assistant goes straight on to the pairing code of step 3, so first
+   get that code (step 2).
+
+Or by hand on **older versions** (HACS):
 
 1. In Home Assistant, open **HACS** in the side bar.
 2. Click the **three dots** at the top right and choose **Custom repositories**.
@@ -42,10 +54,13 @@ Or by hand:
 2. Open **Sensors** in the top bar, choose **Add Zigbee coordinator** and pick **Home Assistant**
    at the top of the list. (The same button is on the knowledge base page
    [Connect your own Zigbee coordinator](https://fairgrow.eu/connect-your-own-zigbee-coordinator/).)
-3. Click **Make a pairing code**. You get eight characters, for example `7K4M-2QP9`.
+3. Click **Create pairing code**. You get eight characters, for example `7K4M-2QP9`.
    The code works once and lasts fifteen minutes.
 
 ### 3. Paste the code in Home Assistant
+
+Installed through the Marketplace? Then Home Assistant already asks for the code; paste it and
+click **Submit**. Otherwise:
 
 1. In Home Assistant, go to **Settings**, **Devices & services**.
 2. Click **Add integration** at the bottom right and search for **FairGrow**.
@@ -53,8 +68,10 @@ Or by hand:
 
 ### 4. Choose what you share
 
-Tick the sensors FairGrow may see and click **Submit**. Done. Within a minute the sensors show up
-on FairGrow under your new Home Assistant coordinator.
+Tick the sensors FairGrow may see and click **Submit**. Done. On your FairGrow dashboard the
+sensors show up in the card named **Home Assistant** followed by the name of your installation
+(for example *Home Assistant Home*), in the Devices section. A sensor shows its first value as soon
+as it reports one; some sensors only report when the value changes.
 
 To change your choice later: **Settings**, **Devices & services**, **FairGrow**, **Configure**.
 
