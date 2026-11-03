@@ -33,6 +33,10 @@ class FairGrowRateLimited(FairGrowError):
     """The platform asks us to slow down."""
 
 
+class FairGrowNotSupported(FairGrowError):
+    """The platform does not know this route yet (an older FairGrow)."""
+
+
 # Error codes of the platform mapped to the error keys of the config flow.
 _CODE_REASONS = {
     "fg_ha_code_vorm": "invalid_code",
@@ -87,6 +91,8 @@ class FairGrowApi:
                             _CODE_REASONS[body["code"]], str(body.get("message", ""))
                         )
                     raise FairGrowRateLimited(str(body.get("message") or "429"))
+                if resp.status == 404 and body.get("code") == "rest_no_route":
+                    raise FairGrowNotSupported(path)
                 if resp.status >= 400:
                     code = str(body.get("code", ""))
                     if code in _CODE_REASONS:
@@ -123,6 +129,10 @@ class FairGrowApi:
     async def states(self, states: list[dict[str, Any]]) -> dict[str, Any]:
         """Push a batch of readings."""
         return await self._post("/states", {"states": states})
+
+    async def automations(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Send the user's own automations and scripts (only when they opted in)."""
+        return await self._post("/automations", payload)
 
     async def heartbeat(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Tell FairGrow we are alive."""

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import socket
+import time
 from unittest.mock import patch
 
 import aiohttp
@@ -85,9 +86,12 @@ async def test_live_pair_push_and_isolation(hass: HomeAssistant, live_session: a
     code = r.json()["code"]
 
     # 2. the config flow in Home Assistant, with a real temperature sensor in °F
+    # Two minutes old: the platform keeps the first reading within one minute, so the
+    # change below must fall in a later minute to be the value that shows.
     hass.states.async_set(
         "sensor.livetest_kas_temperature", "70.7",
         {"device_class": "temperature", "unit_of_measurement": "°F", "friendly_name": "Livetest kas"},
+        timestamp=time.time() - 120,
     )
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER})
@@ -147,3 +151,123 @@ async def test_live_pair_push_and_isolation(hass: HomeAssistant, live_session: a
     r = await hass.async_add_executor_job(get, a, "/fg-ha/v1/installaties")
     inst = [i for i in r.json()["installaties"] if i["adapter_id"] == adapter_id]
     assert inst and inst[0]["revoked_at"], inst
+
+
+LIVE_AUTOMATIONS = """\
+- id: 'livetest_kas_water'
+  alias: Livetest kas water geven
+  description: Zoals de UI van Home Assistant hem schrijft
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.livetest_kas_vocht
+      below: 30
+      for: '00:05:00'
+  conditions:
+    - condition: time
+      after: '06:00:00'
+      before: '21:00:00'
+  actions:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.livetest_klep
+    - delay: '00:10:00'
+    - action: switch.turn_off
+      target:
+        entity_id: switch.livetest_klep
+  mode: single
+- id: 'livetest_oud_formaat'
+  alias: Livetest oud formaat
+  trigger:
+    platform: time
+    at: '07:00:00'
+  action:
+    - service: notify.notify
+      data:
+        message: !secret livetest_tekst
+"""
+
+LIVE_SCRIPTS = """\
+livetest_klep_puls:
+  alias: Livetest klep vijf minuten
+  sequence:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.livetest_klep
+    - delay: '00:05:00'
+    - action: switch.turn_off
+      target:
+        entity_id: switch.livetest_klep
+"""
+
+
+async def test_live_share_and_take_over_automations(hass: HomeAssistant, live_session: aiohttp.ClientSession) -> None:
+    """Erik's route: pair with sharing on, the list arrives, take every item over.
+
+    Taking over must never crash on a raw Home Assistant definition (string entity_id,
+    old trigger/platform format, !secret as text) and B must not see A's list."""
+    a = _session("FG_LIVE_A_USER", "FG_LIVE_A_PW")
+    b = _session("FG_LIVE_B_USER", "FG_LIVE_B_PW")
+    api = URL + "/wp-json"
+    from pathlib import Path
+
+    Path(hass.config.config_dir, "automations.yaml").write_text(LIVE_AUTOMATIONS, encoding="utf-8")
+    Path(hass.config.config_dir, "scripts.yaml").write_text(LIVE_SCRIPTS, encoding="utf-8")
+
+    def call(s: requests.Session, method: str, path: str, **kw) -> requests.Response:
+        return s.request(method, api + path, timeout=60, **kw)
+
+    r = await hass.async_add_executor_job(lambda: call(a, "POST", "/fg-ha/v1/pair/new", json={}))
+    code = r.json()["code"]
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: code, "advanced": {CONF_URL: URL}})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ENTITIES: [], "share_automations": True})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    pusher = entry.runtime_data
+    genomen: list[int] = []
+    try:
+        assert pusher.stats["automations_error"] is None, pusher.stats
+        assert pusher.stats["automations_count"] == 3, pusher.stats
+
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-aut/v1/ha/lijst"))
+        lijst = r.json()
+        assert lijst["stand"] == "done" and lijst["bron"] == "ha_integratie", lijst
+        ids = {x["id"] for x in lijst["automations"]}
+        assert ids == {"livetest_kas_water", "livetest_oud_formaat", "script.livetest_klep_puls"}, ids
+        assert "!secret livetest_tekst" in str(lijst["automations"])
+
+        r = await hass.async_add_executor_job(lambda: call(b, "GET", "/fg-aut/v1/ha/lijst"))
+        assert not any(x.get("id", "").startswith(("livetest", "script.livetest")) for x in r.json().get("automations", []))
+
+        # "Fetch from Home Assistant": the integration hears it in its next answer
+        r = await hass.async_add_executor_job(lambda: call(a, "POST", "/fg-aut/v1/ha/vraag", json={}))
+        assert r.json()["ok"] and any(g.get("ha_integratie") for g in r.json()["gevraagd"]), r.text
+        pusher._last_heartbeat -= 61  # noqa: SLF001 - a minute later: the heartbeat is due
+        await pusher.async_flush(force=True)  # its answer carries automations_sturen
+        assert pusher._aut_asked  # noqa: SLF001
+        await pusher.async_share_automations()
+        assert not pusher._aut_asked and pusher.stats["automations_error"] is None  # noqa: SLF001
+
+        uitkomst = {}
+        for ha_id in sorted(ids):
+            r = await hass.async_add_executor_job(
+                lambda h=ha_id: call(a, "POST", "/fg-aut/v1/ha/overnemen", json={"ha_id": h}))
+            assert r.status_code == 200, (ha_id, r.status_code, r.text[:300])
+            j = r.json()
+            uitkomst[ha_id] = j
+            genomen += [o["id"] for o in j.get("opgeslagen", [])]
+        print("OVERNEMEN", {k: ([(o["naam"], o["status"], o["actief"]) for o in v.get("opgeslagen", [])],
+                                [g["rapport"] for g in v.get("geweigerd", [])], v.get("fouten")) for k, v in uitkomst.items()})
+        assert genomen, uitkomst
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-aut/v1/automations"))
+        mijn = {x["id"]: x for x in r.json().get("automations", r.json() if isinstance(r.json(), list) else [])}
+        for aid in genomen:
+            assert aid in mijn and int(mijn[aid]["actief"]) == 0, mijn.get(aid)
+    finally:
+        for aid in genomen:
+            await hass.async_add_executor_job(lambda i=aid: call(a, "DELETE", f"/fg-aut/v1/automations/{i}"))
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()

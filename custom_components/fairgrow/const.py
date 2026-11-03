@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "fairgrow"
-VERSION: Final = "0.1.0"
+VERSION: Final = "0.2.0"
 
 DEFAULT_URL: Final = "https://fairgrow.eu"
 API_PATH: Final = "/wp-json/fg-ha/v1"
@@ -16,6 +16,7 @@ CONF_TOKEN: Final = "token"
 CONF_ADAPTER_ID: Final = "adapter_id"
 CONF_ENTITIES: Final = "entities"
 CONF_ADVANCED: Final = "advanced"
+CONF_SHARE_AUTOMATIONS: Final = "share_automations"
 
 # How often queued readings are pushed, and how often a heartbeat is sent. The
 # platform may ask for a different push interval in its answers.
@@ -34,6 +35,16 @@ BACKOFF_MAX: Final = 900
 REANNOUNCE_INTERVAL: Final = 6 * 3600
 
 STORAGE_VERSION: Final = 1
+
+# Sharing the user's own automations and scripts (opt-in, see automations.py). The files
+# are checked for a change every minute; the list is sent again when they change, when
+# FairGrow asks for it, and otherwise every six hours.
+AUTOMATION_FILE: Final = "automations.yaml"
+SCRIPT_FILE: Final = "scripts.yaml"
+AUTOMATIONS_CHECK_INTERVAL: Final = 60
+AUTOMATIONS_RESEND_INTERVAL: Final = 6 * 3600
+MAX_AUTOMATIONS: Final = 500
+MAX_AUTOMATIONS_BYTES: Final = 1_500_000
 
 # Device classes FairGrow can use. The selector in the config flow only offers
 # entities with one of these, so that a user is not asked to choose from every

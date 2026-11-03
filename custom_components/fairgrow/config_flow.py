@@ -19,6 +19,7 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntityFilterSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
@@ -32,6 +33,7 @@ from .const import (
     CONF_ADAPTER_ID,
     CONF_CODE,
     CONF_ENTITIES,
+    CONF_SHARE_AUTOMATIONS,
     CONF_TOKEN,
     CONF_URL,
     DEFAULT_URL,
@@ -41,6 +43,27 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def share_schema(entities: list[str], share: bool) -> vol.Schema:
+    """The sensors to share, and whether the own automations and scripts go along.
+
+    Sharing automations is off unless the user ticks it: until 0.2.0 only the chosen
+    readings left Home Assistant, and an update must not change that by itself."""
+    return vol.Schema(
+        {
+            vol.Optional(CONF_ENTITIES, default=entities): entity_selector(),
+            vol.Optional(CONF_SHARE_AUTOMATIONS, default=share): BooleanSelector(),
+        }
+    )
+
+
+def share_options(user_input: dict[str, Any]) -> dict[str, Any]:
+    """What the form gave back, as the options of the entry."""
+    return {
+        CONF_ENTITIES: list(user_input.get(CONF_ENTITIES, [])),
+        CONF_SHARE_AUTOMATIONS: bool(user_input.get(CONF_SHARE_AUTOMATIONS, False)),
+    }
 
 
 def entity_selector() -> EntitySelector:
@@ -132,13 +155,11 @@ class FairGrowConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_TOKEN: self._paired["token"],
                     CONF_ADAPTER_ID: self._paired["adapter_id"],
                 },
-                options={CONF_ENTITIES: list(user_input.get(CONF_ENTITIES, []))},
+                options=share_options(user_input),
             )
         return self.async_show_form(
             step_id="entities",
-            data_schema=vol.Schema(
-                {vol.Optional(CONF_ENTITIES, default=[]): entity_selector()}
-            ),
+            data_schema=share_schema([], False),
         )
 
     async def async_step_reauth(
@@ -177,20 +198,19 @@ class FairGrowConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FairGrowOptionsFlow(OptionsFlow):
-    """Choose the shared entities again."""
+    """Choose the shared entities again, and whether automations go along."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """One step: the same selector, filled with the current choice."""
+        """One step: the same form, filled with the current choice."""
         if user_input is not None:
-            return self.async_create_entry(
-                data={CONF_ENTITIES: list(user_input.get(CONF_ENTITIES, []))}
-            )
-        current = list(self.config_entry.options.get(CONF_ENTITIES, []))
+            return self.async_create_entry(data=share_options(user_input))
+        options = self.config_entry.options
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {vol.Optional(CONF_ENTITIES, default=current): entity_selector()}
+            data_schema=share_schema(
+                list(options.get(CONF_ENTITIES, [])),
+                bool(options.get(CONF_SHARE_AUTOMATIONS, False)),
             ),
         )

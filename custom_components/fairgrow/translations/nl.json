@@ -24,9 +24,13 @@
       },
       "entities": {
         "title": "Kies wat je deelt",
-        "description": "Vink de sensoren aan die FairGrow mag zien. Alleen deze metingen verlaten je Home Assistant. Later aanpassen kan met Configureren.",
+        "description": "Vink de sensoren aan die FairGrow mag zien. Alleen deze metingen verlaten je Home Assistant, plus je automatiseringen en scripts als je dat hieronder aanzet. Later aanpassen kan met Configureren.",
         "data": {
-          "entities": "Sensoren om te delen"
+          "entities": "Sensoren om te delen",
+          "share_automations": "Deel mijn automatiseringen en scripts"
+        },
+        "data_description": {
+          "share_automations": "FairGrow leest automations.yaml en scripts.yaml (alleen lezen, !secret-waarden blijven hier) zodat je ze op fairgrow.eu kunt overnemen. Overnemen maakt daar een kopie die uit staat; in Home Assistant verandert niets."
         }
       },
       "reauth_confirm": {
@@ -53,10 +57,14 @@
   "options": {
     "step": {
       "init": {
-        "title": "Gedeelde sensoren",
+        "title": "Wat je deelt",
         "description": "Vink de sensoren aan die FairGrow mag zien. Sensoren die je uitvinkt stoppen met sturen; hun historie op FairGrow blijft staan.",
         "data": {
-          "entities": "Sensoren om te delen"
+          "entities": "Sensoren om te delen",
+          "share_automations": "Deel mijn automatiseringen en scripts"
+        },
+        "data_description": {
+          "share_automations": "FairGrow leest automations.yaml en scripts.yaml (alleen lezen, !secret-waarden blijven hier) zodat je ze op fairgrow.eu kunt overnemen. Overnemen maakt daar een kopie die uit staat; in Home Assistant verandert niets."
         }
       }
     }

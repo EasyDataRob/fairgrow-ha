@@ -4,6 +4,10 @@ The pusher listens to `state_changed` for the entities the user chose, puts ever
 change in a queue and sends the queue in batches every PUSH_INTERVAL seconds. When
 FairGrow cannot be reached the queue stays (up to MAX_QUEUE readings, saved over a
 restart of Home Assistant) and is sent later, with backoff.
+
+When the user opted in, it also sends the definitions of their own automations and
+scripts (see automations.py), so that FairGrow can offer to take them over. That runs
+beside the readings and never holds them up: a failure there is only counted.
 """
 
 from __future__ import annotations
@@ -30,11 +34,15 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .api import FairGrowApi, FairGrowAuthError, FairGrowError
+from . import automations as own_automations
+from .api import FairGrowApi, FairGrowAuthError, FairGrowError, FairGrowNotSupported
 from .const import (
+    AUTOMATIONS_CHECK_INTERVAL,
+    AUTOMATIONS_RESEND_INTERVAL,
     BACKOFF_MAX,
     BACKOFF_MIN,
     CONF_ENTITIES,
+    CONF_SHARE_AUTOMATIONS,
     CONF_TOKEN,
     CONF_URL,
     DEFAULT_URL,
@@ -105,6 +113,13 @@ class FairGrowPusher:
         self._busy = False
         self._auth_failed = False
         self.push_interval = PUSH_INTERVAL
+        self.share_automations = bool(entry.options.get(CONF_SHARE_AUTOMATIONS, False))
+        self._aut_file_fp: str | None = None
+        self._aut_sent_fp: str | None = None
+        self._aut_last_check = 0.0
+        self._aut_last_sent = 0.0
+        self._aut_asked = False
+        self._aut_busy = False
         self.stats: dict[str, Any] = {
             "sent": 0,
             "failed_pushes": 0,
@@ -113,6 +128,11 @@ class FairGrowPusher:
             "last_error": None,
             "accepted_entities": 0,
             "ignored_entities": {},
+            "automations_shared": self.share_automations,
+            "automations_last_sent": None,
+            "automations_count": None,
+            "automations_sources": {},
+            "automations_error": None,
         }
 
     # ------------------------------------------------------------------ life cycle
@@ -151,6 +171,8 @@ class FairGrowPusher:
             raise
         except FairGrowError as err:
             _LOGGER.warning("FairGrow not reachable yet, readings are queued: %s", err)
+        if self.share_automations and not self._auth_failed:
+            await self.async_share_automations(force=True)
 
     async def async_stop(self) -> None:
         """Stop listening and keep what is still queued for the next start."""
@@ -249,12 +271,15 @@ class FairGrowPusher:
             _LOGGER.info(
                 "FairGrow cannot use these entities: %s", self.stats["ignored_entities"]
             )
-        self._apply_interval(result)
+        self._apply_answer(result)
 
-    def _apply_interval(self, result: dict[str, Any]) -> None:
+    def _apply_answer(self, result: dict[str, Any]) -> None:
+        """What FairGrow says back: the push interval, and whether it wants the list."""
         sec = result.get("push_seconden")
         if isinstance(sec, int) and 10 <= sec <= 3600:
             self.push_interval = sec
+        if result.get("automations_sturen"):
+            self._aut_asked = True
 
     async def async_flush(self, force: bool = False) -> None:
         """Send what is queued, in batches. Leaves the queue alone on failure."""
@@ -273,23 +298,28 @@ class FairGrowPusher:
                 for _ in batch:
                     self.queue.popleft()
                 self.stats["sent"] += len(batch)
-                self._apply_interval(result)
+                self._apply_answer(result)
                 if result.get("opnieuw_aanmelden"):
                     self._registered = False
             self._last_push = now
             self.stats["last_push"] = datetime.now().isoformat(timespec="seconds")
             self._backoff = 0
             self._next_try = 0
-            if now - self._last_heartbeat >= HEARTBEAT_INTERVAL:
-                await self.api.heartbeat(
+            # With sharing on, FairGrow's "fetch again" travels in the answers. Without new
+            # readings the heartbeat is the only answer, so it comes every minute then.
+            heartbeat_every = AUTOMATIONS_CHECK_INTERVAL if self.share_automations else HEARTBEAT_INTERVAL
+            if now - self._last_heartbeat >= heartbeat_every:
+                result = await self.api.heartbeat(
                     {
                         "versie": VERSION,
                         "ha_versie": HA_VERSION,
                         "wachtrij": len(self.queue),
                         "entiteiten": len(self.entities),
                         "fouten": self.stats["failed_pushes"],
+                        "automations_delen": self.share_automations,
                     }
                 )
+                self._apply_answer(result)
                 self._last_heartbeat = now
         except FairGrowAuthError as err:
             self._auth_failed = True
@@ -308,6 +338,74 @@ class FairGrowPusher:
     async def _async_tick(self, now: datetime) -> None:
         if now.timestamp() - self._last_push >= self.push_interval:
             await self.async_flush()
+        if self.share_automations and not self._auth_failed:
+            await self.async_share_automations()
+
+    # ------------------------------------------------------------------ own automations
+
+    async def async_share_automations(self, force: bool = False) -> None:
+        """Send the definitions when they changed, when FairGrow asked, or after a while.
+
+        `force` sends regardless (start-up). Never raises: the readings matter more."""
+        if self._aut_busy:
+            return
+        now = _now()
+        if not force and not self._aut_asked and now - self._aut_last_check < AUTOMATIONS_CHECK_INTERVAL:
+            return
+        self._aut_busy = True
+        self._aut_last_check = now
+        config_dir = self.hass.config.config_dir
+        try:
+            file_fp = await self.hass.async_add_executor_job(
+                own_automations.fingerprint, config_dir
+            )
+            due = (
+                force
+                or self._aut_asked
+                or file_fp != self._aut_file_fp
+                or now - self._aut_last_sent >= AUTOMATIONS_RESEND_INTERVAL
+            )
+            if not due:
+                return
+            payload = await self.hass.async_add_executor_job(
+                own_automations.read_all, config_dir
+            )
+            self.stats["automations_sources"] = payload["bronnen"]
+            if (
+                not force
+                and not self._aut_asked
+                and payload["vingerafdruk"] == self._aut_sent_fp
+                and now - self._aut_last_sent < AUTOMATIONS_RESEND_INTERVAL
+            ):
+                # A file was touched but nothing in it changed.
+                self._aut_file_fp = file_fp
+                return
+            payload["versie"] = VERSION
+            await self.api.automations(payload)
+            self._aut_file_fp = file_fp
+            self._aut_sent_fp = payload["vingerafdruk"]
+            self._aut_last_sent = now
+            self._aut_asked = False
+            self.stats["automations_count"] = len(payload["automations"])
+            self.stats["automations_last_sent"] = datetime.now().isoformat(timespec="seconds")
+            self.stats["automations_error"] = None
+        except FairGrowNotSupported:
+            # An older FairGrow: try again after the resend interval, quietly.
+            self._aut_last_sent = now
+            self._aut_file_fp = None
+            self._aut_asked = False
+            self.stats["automations_error"] = "FairGrow does not accept automations yet"
+        except FairGrowAuthError as err:
+            self.stats["automations_error"] = f"auth: {err}"
+        except FairGrowError as err:
+            # Retried on the next check; the file fingerprint is left unchanged on purpose.
+            self.stats["automations_error"] = str(err)
+            _LOGGER.debug("Sending automations to FairGrow failed: %s", err)
+        except Exception as err:  # noqa: BLE001 - reading the user's files must never break the readings
+            self.stats["automations_error"] = f"read: {err}"
+            _LOGGER.warning("Could not read automations.yaml or scripts.yaml: %s", err)
+        finally:
+            self._aut_busy = False
 
     # ------------------------------------------------------------------ diagnostics
 

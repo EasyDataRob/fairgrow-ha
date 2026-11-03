@@ -24,9 +24,13 @@
       },
       "entities": {
         "title": "Choose what you share",
-        "description": "Tick the sensors FairGrow may see. Only these readings leave your Home Assistant. You can change this later with Configure.",
+        "description": "Tick the sensors FairGrow may see. Only these readings leave your Home Assistant, plus your automations and scripts if you switch that on below. You can change this later with Configure.",
         "data": {
-          "entities": "Sensors to share"
+          "entities": "Sensors to share",
+          "share_automations": "Share my automations and scripts"
+        },
+        "data_description": {
+          "share_automations": "FairGrow reads automations.yaml and scripts.yaml (read only, !secret values stay here) so you can take them over on fairgrow.eu. Taking over makes a copy there that starts switched off; nothing changes in Home Assistant."
         }
       },
       "reauth_confirm": {
@@ -53,10 +57,14 @@
   "options": {
     "step": {
       "init": {
-        "title": "Shared sensors",
+        "title": "What you share",
         "description": "Tick the sensors FairGrow may see. Sensors you untick stop sending; their history on FairGrow stays.",
         "data": {
-          "entities": "Sensors to share"
+          "entities": "Sensors to share",
+          "share_automations": "Share my automations and scripts"
+        },
+        "data_description": {
+          "share_automations": "FairGrow reads automations.yaml and scripts.yaml (read only, !secret values stay here) so you can take them over on fairgrow.eu. Taking over makes a copy there that starts switched off; nothing changes in Home Assistant."
         }
       }
     }
