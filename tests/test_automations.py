@@ -158,10 +158,10 @@ async def _advance(hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds:
     """Let the clock run in steps of the ten-second tick. One jump of 75 s fires the
     interval timer once or not at all depending on where it falls, which made these
     tests fail one run in two."""
-    for _ in range(seconds // 10):
-        freezer.tick(timedelta(seconds=10))
+    for _ in range(seconds // 11):  # 11, not 10: a jump of exactly the interval is a coin toss
+        freezer.tick(timedelta(seconds=11))
         async_fire_time_changed(hass)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
 
 async def test_off_by_default_sends_nothing(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -> None:
@@ -173,10 +173,10 @@ async def test_off_by_default_sends_nothing(hass: HomeAssistant, aioclient_mock:
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert not _calls(aioclient_mock, "/automations")
     hb = _calls(aioclient_mock, "/heartbeat")[0][2]
-    assert hb["automations_delen"] is False and hb["versie"] == "0.3.0"
+    assert hb["automations_delen"] is False and hb["versie"] == "0.3.1"
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -187,11 +187,11 @@ async def test_sent_on_start_when_switched_on(hass: HomeAssistant, aioclient_moc
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     call = _calls(aioclient_mock, "/automations")[0]
     assert call[3]["X-Adapter-Token"] == "t" * 48
     body = call[2]
-    assert body["versie"] == "0.3.0" and body["totaal"] == 5
+    assert body["versie"] == "0.3.1" and body["totaal"] == 5
     assert {a["id"] for a in body["automations"]} >= {"1700000000001", "script.klep_puls"}
     stats = entry.runtime_data.stats
     assert stats["automations_count"] == 5 and stats["automations_error"] is None
@@ -207,7 +207,7 @@ async def test_sent_again_on_change_and_on_request_only(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(_calls(aioclient_mock, "/automations")) == 1
 
     await _advance(hass, freezer, 80)
@@ -223,7 +223,7 @@ async def test_sent_again_on_change_and_on_request_only(
     aioclient_mock.clear_requests()
     _mock(aioclient_mock, states={"ok": True, "push_seconden": 60, "automations_sturen": True})
     hass.states.async_set("sensor.kas_temp", "23", {"device_class": "temperature"})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await _advance(hass, freezer, 80)
     assert len(_calls(aioclient_mock, "/automations")) == 1
     assert await hass.config_entries.async_unload(entry.entry_id)
@@ -238,15 +238,15 @@ async def test_request_arrives_by_heartbeat_without_readings(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     aioclient_mock.clear_requests()
     aioclient_mock.post(API + "/states", json={"ok": True, "push_seconden": 60})
     aioclient_mock.post(API + "/heartbeat", json={"ok": True, "automations_sturen": True})
     aioclient_mock.post(API + "/automations", json={"ok": True})
-    for _ in range(8):  # 80 seconds, no state changes at all
-        freezer.tick(timedelta(seconds=10))
+    for _ in range(7):  # 77 seconds in steps of 11, no state changes at all
+        freezer.tick(timedelta(seconds=11))
         async_fire_time_changed(hass)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert _calls(aioclient_mock, "/heartbeat")
     assert not _calls(aioclient_mock, "/states")
     assert len(_calls(aioclient_mock, "/automations")) == 1
@@ -263,7 +263,7 @@ async def test_older_fairgrow_and_errors_do_not_hurt_readings(
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     _mock(aioclient_mock, automations={"code": "rest_no_route", "message": "No route"}, status=404)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     pusher = entry.runtime_data
     assert pusher.stats["automations_error"] == "FairGrow does not accept automations yet"
     assert _calls(aioclient_mock, "/states") and len(pusher.queue) == 0
@@ -279,7 +279,7 @@ async def test_broken_yaml_is_reported_not_raised(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     body = _calls(aioclient_mock, "/automations")[0][2]
     assert body["bronnen"]["automations.yaml"].startswith("error:")
     assert {a["soort"] for a in body["automations"]} == {"script"}

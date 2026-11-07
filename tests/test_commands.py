@@ -105,10 +105,12 @@ def _calls(aioclient_mock: AiohttpClientMocker, path: str) -> list:
     return [c for c in aioclient_mock.mock_calls if str(c[1]).endswith(path)]
 
 
-async def _tick(hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: int = 10) -> None:
+async def _tick(hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: int = 11) -> None:
+    """One tick. 11 s, not 10: a jump of exactly the interval fires the timer or not
+    depending on microseconds spent during setup."""
     freezer.tick(timedelta(seconds=seconds))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 async def test_no_control_list_no_polling(
@@ -119,7 +121,7 @@ async def test_no_control_list_no_polling(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await _tick(hass, freezer)
     await _tick(hass, freezer)
     assert not _calls(aioclient_mock, "/commands")
@@ -138,7 +140,7 @@ async def test_command_runs_and_result_goes_back(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     ent = {e["entity_id"]: e for e in _calls(aioclient_mock, "/entities")[0][2]["entiteiten"]}
     assert ent["light.lightstrip"]["bedienbaar"] is True and ent["sensor.kas_temp"]["bedienbaar"] is False
 
@@ -173,7 +175,7 @@ async def test_results_wait_when_fairgrow_is_down(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     pusher = entry.runtime_data
     pusher._cmd_results = [{"id": 5, "ok": True}]
     aioclient_mock.clear_requests()
@@ -197,7 +199,7 @@ async def test_older_fairgrow_pauses_polling(
     entry.add_to_hass(hass)
     _mock(aioclient_mock, commands={"code": "rest_no_route"}, status=404)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await _tick(hass, freezer)
     await _tick(hass, freezer)
     await _tick(hass, freezer)
@@ -215,12 +217,41 @@ async def test_light_change_is_pushed_on_the_next_tick(
     entry.add_to_hass(hass)
     _mock(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     aioclient_mock.clear_requests()
     _mock(aioclient_mock)
     hass.states.async_set("light.lightstrip", "on")
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await _tick(hass, freezer)
     states = _calls(aioclient_mock, "/states")
     assert states and states[0][2]["states"][-1]["state"] == "on"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_commands_answer_can_ask_for_the_automations(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, freezer: FrozenDateTimeFactory
+) -> None:
+    """"Fetch from Home Assistant" reaches the integration within a tick, not a minute."""
+    from pathlib import Path
+
+    from custom_components.fairgrow.const import CONF_SHARE_AUTOMATIONS
+
+    Path(hass.config.config_dir, "automations.yaml").write_text("- id: a\n  alias: A\n  actions: []\n", encoding="utf-8")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_URL: URL, CONF_TOKEN: "t" * 48, CONF_ADAPTER_ID: 7},
+        options={CONF_ENTITIES: ["sensor.kas_temp", "switch.pomp"], CONF_CONTROL: ["switch.pomp"],
+                 CONF_SHARE_AUTOMATIONS: True},
+    )
+    entry.add_to_hass(hass)
+    _mock(aioclient_mock)
+    aioclient_mock.post(API + "/automations", json={"ok": True})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(_calls(aioclient_mock, "/automations")) == 1  # at start
+    aioclient_mock.clear_requests()
+    _mock(aioclient_mock, commands={"ok": True, "opdrachten": [], "automations_sturen": True})
+    aioclient_mock.post(API + "/automations", json={"ok": True})
+    await _tick(hass, freezer)
+    assert len(_calls(aioclient_mock, "/automations")) == 1
     assert await hass.config_entries.async_unload(entry.entry_id)

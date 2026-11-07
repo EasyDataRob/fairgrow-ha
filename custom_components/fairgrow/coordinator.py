@@ -401,6 +401,9 @@ class FairGrowPusher:
                 except FairGrowError:
                     self._cmd_results = results + self._cmd_results
                     raise
+                # This answer comes every ten seconds, the heartbeat once a minute: FairGrow
+                # asks for the automations list here too, so "Fetch" on fairgrow.eu is quick.
+                self._apply_answer(answer)
                 todo = [c for c in answer.get("opdrachten", []) if isinstance(c, dict)]
                 if not todo:
                     break

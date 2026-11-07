@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "fairgrow"
-VERSION: Final = "0.3.0"
+VERSION: Final = "0.3.1"
 
 DEFAULT_URL: Final = "https://fairgrow.eu"
 API_PATH: Final = "/wp-json/fg-ha/v1"

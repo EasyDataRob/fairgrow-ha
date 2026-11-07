@@ -380,3 +380,124 @@ async def test_live_fairgrow_switches_a_light(hass: HomeAssistant, live_session:
             await hass.async_add_executor_job(lambda i=i: call(a, "DELETE", f"/fg-aut/v1/automations/{i}"))
         await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
+
+
+ERIK_YAML = """\
+- id: test_warm_light_on
+  alias: Warm, light on
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.livetest_temp
+      above: 20
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.livetest_strip
+- id: test_cool_light_off
+  alias: Cool, light off
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.livetest_temp
+      below: 20
+  actions:
+    - action: light.turn_off
+      target:
+        entity_id: light.livetest_strip
+"""
+
+
+async def test_live_erik_route_on_and_off(hass: HomeAssistant, live_session: aiohttp.ClientSession) -> None:
+    """The exact route in the mail to Erik, with the clock running for real.
+
+    automations.yaml starts empty; the two automations are written AFTER pairing, then
+    fetched the way the button on fairgrow.eu does it (ha/vraag, poll ha/lijst until it is
+    no longer 'wacht'), taken over, switched on. Warm: light on. Cool: light off."""
+    from pathlib import Path
+
+    from homeassistant.core import ServiceCall
+
+    a = _session("FG_LIVE_A_USER", "FG_LIVE_A_PW")
+    api = URL + "/wp-json"
+
+    def call(method: str, path: str, **kw) -> requests.Response:
+        return a.request(method, api + path, timeout=60, **kw)
+
+    def temp(v: str) -> None:
+        hass.states.async_set("sensor.livetest_temp", v,
+                              {"device_class": "temperature", "unit_of_measurement": "°C", "friendly_name": "Livetest temp"})
+
+    Path(hass.config.config_dir, "automations.yaml").write_text("[]\n", encoding="utf-8")
+    temp("18.0")
+    hass.states.async_set("light.livetest_strip", "off", {"friendly_name": "Livetest strip"})
+    switched: list[str] = []
+
+    async def _light(service: ServiceCall) -> None:
+        switched.append(service.service)
+        hass.states.async_set("light.livetest_strip", "on" if service.service == "turn_on" else "off",
+                              {"friendly_name": "Livetest strip"})
+
+    hass.services.async_register("light", "turn_on", _light)
+    hass.services.async_register("light", "turn_off", _light)
+
+    code = (await hass.async_add_executor_job(lambda: call("POST", "/fg-ha/v1/pair/new", json={}))).json()["code"]
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: code, "advanced": {CONF_URL: URL}})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        CONF_ENTITIES: ["sensor.livetest_temp"], "control": ["light.livetest_strip"],
+        "share_automations": True, "share_scripts": False})
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    pusher = entry.runtime_data
+    genomen: list[int] = []
+    try:
+        # Erik writes his two automations now, after pairing
+        Path(hass.config.config_dir, "automations.yaml").write_text(ERIK_YAML, encoding="utf-8")
+        t0 = time.time()
+        r = await hass.async_add_executor_job(lambda: call("POST", "/fg-aut/v1/ha/vraag", json={}))
+        assert r.json()["ok"] and any(g.get("ha_integratie") for g in r.json()["gevraagd"]), r.text
+        lijst = {}
+        for _ in range(40):  # what the page does: every 3 s, at most 90 s (here 120 s)
+            await asyncio.sleep(3)
+            lijst = (await hass.async_add_executor_job(lambda: call("GET", "/fg-aut/v1/ha/lijst"))).json()
+            if lijst.get("stand") == "done":
+                break
+        print("LIJST na", round(time.time() - t0), "s:", lijst.get("stand"), [x["id"] for x in lijst.get("automations", [])])
+        assert lijst.get("stand") == "done", lijst
+        assert {x["id"] for x in lijst["automations"]} == {"test_warm_light_on", "test_cool_light_off"}
+        assert time.time() - t0 < 90, "slower than the page waits"
+
+        for ha_id in ("test_warm_light_on", "test_cool_light_off"):
+            j = (await hass.async_add_executor_job(lambda h=ha_id: call("POST", "/fg-aut/v1/ha/overnemen", json={"ha_id": h}))).json()
+            assert j.get("opgeslagen") and j["opgeslagen"][0]["status"] == "ok", j
+            genomen.append(j["opgeslagen"][0]["id"])
+        for aid in genomen:
+            j = (await hass.async_add_executor_job(lambda i=aid: call("POST", f"/fg-aut/v1/automations/{i}/actief", json={"actief": 1}))).json()
+            assert j.get("ok"), j
+
+        async def wacht_op(n: int) -> None:
+            for _ in range(80):  # readings go up once a minute
+                await asyncio.sleep(1)
+                if len(switched) >= n:
+                    return
+
+        await asyncio.sleep(70)  # a full round of the engine after switching on: nothing may switch
+        assert switched == [], f"switched on activation: {switched}"
+        t1 = time.time()
+        temp("22.5")
+        await wacht_op(1)
+        print("AAN na", round(time.time() - t1, 1), "s", switched)
+        assert switched == ["turn_on"] and hass.states.get("light.livetest_strip").state == "on"
+
+        await asyncio.sleep(4)  # past the 3 s brake per actuator
+        t2 = time.time()
+        temp("19.0")
+        await wacht_op(2)
+        print("UIT na", round(time.time() - t2, 1), "s", switched)
+        assert switched == ["turn_on", "turn_off"] and hass.states.get("light.livetest_strip").state == "off"
+        print("STATS", pusher.stats)
+    finally:
+        for i in genomen:
+            await hass.async_add_executor_job(lambda i=i: call("DELETE", f"/fg-aut/v1/automations/{i}"))
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()

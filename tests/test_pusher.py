@@ -81,7 +81,7 @@ async def test_setup_announces_and_pushes_current_states(
     _mock_ok(aioclient_mock)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert entry.state is ConfigEntryState.LOADED
 
     ent_call = _calls(aioclient_mock, "/entities")[0]
@@ -114,24 +114,24 @@ async def test_changes_are_batched_and_attribute_updates_skipped(
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     _mock_ok(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     aioclient_mock.mock_calls.clear()
 
     hass.states.async_set("sensor.kas_temp", "21", {"device_class": "temperature"})
     hass.states.async_set("sensor.kas_temp", "21", {"device_class": "temperature", "x": 1})  # attribute only
     hass.states.async_set("sensor.kas_temp", "22", {"device_class": "temperature"})
     hass.states.async_set("sensor.ander", "99", {"device_class": "temperature"})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     pusher = entry.runtime_data
     assert [q["state"] for q in pusher.queue] == ["21", "22"]
 
     freezer.tick(timedelta(seconds=30))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert not _calls(aioclient_mock, "/states")  # not due yet
     freezer.tick(timedelta(seconds=45))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     sent = _calls(aioclient_mock, "/states")[0][2]["states"]
     assert [s["state"] for s in sent] == ["21", "22"]
     assert len(pusher.queue) == 0
@@ -147,11 +147,11 @@ async def test_queue_survives_network_loss(
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     aioclient_mock.post(API + "/entities", exc=ClientError())
     assert await hass.config_entries.async_setup(entry.entry_id)  # starts anyway
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     pusher = entry.runtime_data
     for v in ("21", "22", "23"):
         hass.states.async_set("sensor.kas_temp", v, {"device_class": "temperature"})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await pusher.async_flush(force=True)
     assert [q["state"] for q in pusher.queue] == ["20", "21", "22", "23"]
     assert pusher.stats["failed_pushes"] >= 1
@@ -176,18 +176,18 @@ async def test_queue_is_saved_over_a_restart(
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     aioclient_mock.post(API + "/entities", exc=ClientError())
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     hass.states.async_set("sensor.kas_temp", "19", {"device_class": "temperature"})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     stored = hass_storage[f"{DOMAIN}.{entry.entry_id}.queue"]["data"]["queue"]
     assert [q["state"] for q in stored] == ["20", "19"]
 
     aioclient_mock.clear_requests()
     _mock_ok(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     sent = _calls(aioclient_mock, "/states")[0][2]["states"]
     assert [s["state"] for s in sent] == ["20", "19", "19"]  # stored queue, then current state
     assert await hass.config_entries.async_unload(entry.entry_id)
@@ -201,7 +201,7 @@ async def test_revoked_token_starts_reauth(
     entry.add_to_hass(hass)
     aioclient_mock.post(API + "/entities", status=401, json={"code": "fg_ha_geen_token", "message": "revoked"})
     assert not await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert entry.state is ConfigEntryState.SETUP_ERROR
     flows = hass.config_entries.flow.async_progress()
     assert any(f["context"]["source"] == "reauth" for f in flows)
@@ -216,7 +216,7 @@ async def test_diagnostics_do_not_leak_the_token(
     hass.states.async_set("sensor.kas_temp", "20", {"device_class": "temperature"})
     _mock_ok(aioclient_mock)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     diag = await async_get_config_entry_diagnostics(hass, entry)
     text = json.dumps(diag, default=str)
     assert TOKEN not in text
@@ -234,7 +234,7 @@ async def test_remove_entry_unpairs(
     _mock_ok(aioclient_mock)
     aioclient_mock.post(API + "/unpair", json={"ok": True})
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await hass.config_entries.async_remove(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert _calls(aioclient_mock, "/unpair")
