@@ -8,10 +8,16 @@ restart of Home Assistant) and is sent later, with backoff.
 When the user opted in, it also sends the definitions of their own automations and
 scripts (see automations.py), so that FairGrow can offer to take them over. That runs
 beside the readings and never holds them up: a failure there is only counted.
+
+Since 0.3.0 FairGrow can switch the lights and switches the user put on the control list
+(see commands.py). While that list is not empty the pusher asks FairGrow every tick for
+commands, runs the allowed ones and reports back. A light or switch that changes is sent
+on the next tick instead of after a minute, so that an automation on FairGrow sees it.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from datetime import datetime, timedelta
 import logging
@@ -21,6 +27,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
@@ -34,21 +41,26 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import automations as own_automations
+from . import automations as own_automations, commands as own_commands
 from .api import FairGrowApi, FairGrowAuthError, FairGrowError, FairGrowNotSupported
 from .const import (
     AUTOMATIONS_CHECK_INTERVAL,
     AUTOMATIONS_RESEND_INTERVAL,
     BACKOFF_MAX,
     BACKOFF_MIN,
+    COMMAND_TIMEOUT,
+    CONF_CONTROL,
     CONF_ENTITIES,
     CONF_SHARE_AUTOMATIONS,
+    CONF_SHARE_SCRIPTS,
+    CONTROL_DOMAINS,
     CONF_TOKEN,
     CONF_URL,
     DEFAULT_URL,
     DOMAIN,
     HEARTBEAT_INTERVAL,
     MAX_BATCH,
+    MAX_COMMANDS,
     MAX_QUEUE,
     PUSH_INTERVAL,
     REANNOUNCE_INTERVAL,
@@ -114,6 +126,21 @@ class FairGrowPusher:
         self._auth_failed = False
         self.push_interval = PUSH_INTERVAL
         self.share_automations = bool(entry.options.get(CONF_SHARE_AUTOMATIONS, False))
+        # Up to 0.2.0 one box covered both files; without the new key scripts follow it.
+        self.share_scripts = bool(
+            entry.options.get(CONF_SHARE_SCRIPTS, self.share_automations)
+        )
+        self.share_own = self.share_automations or self.share_scripts
+        self.control: list[str] = [
+            e for e in entry.options.get(CONF_CONTROL, []) if e in self.entities
+        ]
+        self._urgent = False
+        self._cmd_busy = False
+        self._cmd_results: list[dict[str, Any]] = []
+        # Ids that already ran. Should FairGrow hand a command out twice (a lost answer,
+        # a retry), the lamp still switches once.
+        self._cmd_seen: deque[Any] = deque(maxlen=200)
+        self._cmd_paused_until = 0.0
         self._aut_file_fp: str | None = None
         self._aut_sent_fp: str | None = None
         self._aut_last_check = 0.0
@@ -129,6 +156,13 @@ class FairGrowPusher:
             "accepted_entities": 0,
             "ignored_entities": {},
             "automations_shared": self.share_automations,
+            "scripts_shared": self.share_scripts,
+            "control": list(self.control),
+            "commands_done": 0,
+            "commands_refused": 0,
+            "commands_failed": 0,
+            "last_command": None,
+            "commands_error": None,
             "automations_last_sent": None,
             "automations_count": None,
             "automations_sources": {},
@@ -171,7 +205,7 @@ class FairGrowPusher:
             raise
         except FairGrowError as err:
             _LOGGER.warning("FairGrow not reachable yet, readings are queued: %s", err)
-        if self.share_automations and not self._auth_failed:
+        if self.share_own and not self._auth_failed:
             await self.async_share_automations(force=True)
 
     async def async_stop(self) -> None:
@@ -205,6 +239,8 @@ class FairGrowPusher:
         if old_state is not None and old_state.state == new_state.state:
             return
         self._enqueue(new_state)
+        if new_state.domain in CONTROL_DOMAINS:
+            self._urgent = True
 
     # ------------------------------------------------------------------ sending
 
@@ -241,6 +277,7 @@ class FairGrowPusher:
                 "device_class": str(device_class or ""),
                 "eenheid": str(unit or ""),
                 "naam": str(name or entity_id),
+                "bedienbaar": entity_id in self.control,
             }
             if device is not None:
                 item["toestel"] = {
@@ -307,7 +344,7 @@ class FairGrowPusher:
             self._next_try = 0
             # With sharing on, FairGrow's "fetch again" travels in the answers. Without new
             # readings the heartbeat is the only answer, so it comes every minute then.
-            heartbeat_every = AUTOMATIONS_CHECK_INTERVAL if self.share_automations else HEARTBEAT_INTERVAL
+            heartbeat_every = AUTOMATIONS_CHECK_INTERVAL if self.share_own else HEARTBEAT_INTERVAL
             if now - self._last_heartbeat >= heartbeat_every:
                 result = await self.api.heartbeat(
                     {
@@ -317,6 +354,8 @@ class FairGrowPusher:
                         "entiteiten": len(self.entities),
                         "fouten": self.stats["failed_pushes"],
                         "automations_delen": self.share_automations,
+                        "scripts_delen": self.share_scripts,
+                        "schakelen": len(self.control),
                     }
                 )
                 self._apply_answer(result)
@@ -336,10 +375,77 @@ class FairGrowPusher:
             self._busy = False
 
     async def _async_tick(self, now: datetime) -> None:
-        if now.timestamp() - self._last_push >= self.push_interval:
+        if self._urgent or now.timestamp() - self._last_push >= self.push_interval:
+            self._urgent = False
             await self.async_flush()
-        if self.share_automations and not self._auth_failed:
+        if self.control and not self._auth_failed:
+            await self.async_commands()
+        if self.share_own and not self._auth_failed:
             await self.async_share_automations()
+
+    # ------------------------------------------------------------------ commands
+
+    async def async_commands(self) -> None:
+        """Report the results of the last round and run what FairGrow wants now.
+
+        Never raises: switching must not hold up the readings, and a failed round is
+        simply tried again on the next tick (the results wait for it)."""
+        if self._cmd_busy or _now() < self._cmd_paused_until:
+            return
+        self._cmd_busy = True
+        try:
+            for _ in range(3):  # new commands may come back with the answer to the results
+                results, self._cmd_results = self._cmd_results, []
+                try:
+                    answer = await self.api.commands(results)
+                except FairGrowError:
+                    self._cmd_results = results + self._cmd_results
+                    raise
+                todo = [c for c in answer.get("opdrachten", []) if isinstance(c, dict)]
+                if not todo:
+                    break
+                fresh = [c for c in todo[:MAX_COMMANDS] if c.get("id") not in self._cmd_seen]
+                if not fresh:
+                    break
+                for command in fresh:
+                    self._cmd_seen.append(command.get("id"))
+                    self._cmd_results.append(await self._async_run(command))
+            self.stats["commands_error"] = None
+        except FairGrowNotSupported:
+            self._cmd_paused_until = _now() + 3600
+            self.stats["commands_error"] = "FairGrow does not send commands yet"
+        except FairGrowAuthError as err:
+            self.stats["commands_error"] = f"auth: {err}"
+        except FairGrowError as err:
+            self.stats["commands_error"] = str(err)
+            _LOGGER.debug("Fetching commands from FairGrow failed: %s", err)
+        finally:
+            self._cmd_busy = False
+
+    async def _async_run(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Run one command if the rules allow it; the result goes back to FairGrow."""
+        result: dict[str, Any] = {"id": command.get("id")}
+        try:
+            domain, service, entity_id, data = own_commands.check(
+                command, self.control, _now()
+            )
+        except own_commands.Refused as err:
+            self.stats["commands_refused"] += 1
+            _LOGGER.info("FairGrow command refused: %s", err)
+            return {**result, "ok": False, "geweigerd": True, "fout": str(err)}
+        try:
+            async with asyncio.timeout(COMMAND_TIMEOUT):
+                await self.hass.services.async_call(
+                    domain, service, data, blocking=True, target={"entity_id": entity_id}
+                )
+        except (HomeAssistantError, TimeoutError) as err:
+            self.stats["commands_failed"] += 1
+            text = str(err) or "timeout"
+            return {**result, "ok": False, "fout": f"{domain}.{service}: {text}"[:240]}
+        self.stats["commands_done"] += 1
+        self.stats["last_command"] = f"{domain}.{service} {entity_id}"
+        state = self.hass.states.get(entity_id)
+        return {**result, "ok": True, "stand": state.state if state is not None else None}
 
     # ------------------------------------------------------------------ own automations
 
@@ -357,7 +463,7 @@ class FairGrowPusher:
         config_dir = self.hass.config.config_dir
         try:
             file_fp = await self.hass.async_add_executor_job(
-                own_automations.fingerprint, config_dir
+                own_automations.fingerprint, config_dir, self.share_automations, self.share_scripts
             )
             due = (
                 force
@@ -368,7 +474,7 @@ class FairGrowPusher:
             if not due:
                 return
             payload = await self.hass.async_add_executor_job(
-                own_automations.read_all, config_dir
+                own_automations.read_all, config_dir, self.share_automations, self.share_scripts
             )
             self.stats["automations_sources"] = payload["bronnen"]
             if (

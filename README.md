@@ -8,7 +8,8 @@ fields and your automations.
 - **Nothing extra to install.** No second computer, no bridge, no USB stick. Only Home Assistant.
 - **Any integration.** ZHA, Zigbee2MQTT, Shelly, ESPHome, a weather station: it does not matter
   how a sensor got into Home Assistant.
-- **You choose.** FairGrow only sees the sensors you tick. Nothing else leaves your home.
+- **You choose.** FairGrow only sees what you tick, and only switches the lights and switches
+  you allow. Nothing else leaves your home.
 - **Nothing lost.** If your internet drops, Home Assistant keeps the readings and sends them later.
 
 ## What you need
@@ -68,7 +69,16 @@ click **Submit**. Otherwise:
 
 ### 4. Choose what you share
 
-Tick the sensors FairGrow may see and click **Submit**. Done. On your FairGrow dashboard the
+The form has four parts. Everything is off until you tick it.
+
+- **Sensors, lights and switches to share**: what FairGrow may see. For a light or switch that is
+  only whether it is on or off.
+- **Lights and switches FairGrow may switch**: what an automation on fairgrow.eu may turn on, off
+  or toggle. Leave it empty and FairGrow switches nothing.
+- **Share automations.yaml** and **Share scripts.yaml**: read only, so that you can take your
+  automations and scripts over on fairgrow.eu. Each file has its own box.
+
+Click **Submit**. Done. On your FairGrow dashboard the
 sensors show up in the card named **Home Assistant** followed by the name of your installation
 (for example *Home Assistant Home*), in the Devices section. A sensor shows its first value as soon
 as it reports one; some sensors only report when the value changes.
@@ -86,8 +96,26 @@ For each sensor you tick, and nothing else:
 | For Zigbee devices: the Zigbee address | Only so that a device you connected earlier through the FairGrow bridge keeps its history |
 | The state and the time it changed | The reading itself |
 
+If you tick **Share automations.yaml** or **Share scripts.yaml**, that file is read (read only)
+and its automations or scripts are sent, so that you can take them over on fairgrow.eu. `!secret`
+and `!include` stay as text: FairGrow sees `!secret wifi_password`, never the password. No other
+file is read. Taking one over makes a copy on FairGrow that starts switched off; your automation
+in Home Assistant stays as it is.
+
 Your Home Assistant address, your login, your other devices and your network key never leave your
-home. FairGrow cannot switch anything in your Home Assistant through this integration.
+home.
+
+## Letting FairGrow switch lights and switches
+
+Only the lights and switches on the list **Lights and switches FairGrow may switch** can be
+switched, and only on, off and toggle. That list lives in Home Assistant: nobody can extend it from
+fairgrow.eu. Every ten seconds the integration asks FairGrow whether there is something to switch,
+runs it and reports back. A command that arrives more than two minutes late is refused, because a
+lamp that switches on five minutes late is worse than one that does not switch at all.
+
+Example: share a temperature sensor and a light strip, allow FairGrow to switch the strip, make the
+automation "above 20 degrees: light on" in Home Assistant, take it over on fairgrow.eu and switch
+it on there. When the room warms up, FairGrow turns the strip on.
 
 ## Stop sharing
 

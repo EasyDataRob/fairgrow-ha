@@ -134,6 +134,10 @@ class FairGrowApi:
         """Send the user's own automations and scripts (only when they opted in)."""
         return await self._post("/automations", payload)
 
+    async def commands(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Report what was done and fetch what FairGrow wants switched now."""
+        return await self._post("/commands", {"resultaten": results})
+
     async def heartbeat(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Tell FairGrow we are alive."""
         return await self._post("/heartbeat", payload)

@@ -13,6 +13,7 @@ config flow, the HTTP calls and the platform are all real.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import time
@@ -222,7 +223,7 @@ async def test_live_share_and_take_over_automations(hass: HomeAssistant, live_se
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_CODE: code, "advanced": {CONF_URL: URL}})
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_ENTITIES: [], "share_automations": True})
+        result["flow_id"], {CONF_ENTITIES: [], "share_automations": True, "share_scripts": True})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     entry = hass.config_entries.async_entries(DOMAIN)[0]
@@ -269,5 +270,113 @@ async def test_live_share_and_take_over_automations(hass: HomeAssistant, live_se
     finally:
         for aid in genomen:
             await hass.async_add_executor_job(lambda i=aid: call(a, "DELETE", f"/fg-aut/v1/automations/{i}"))
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+LIVE_WARM = """\
+- id: livetest_warm_licht
+  alias: Livetest warm licht aan
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.livetest_temp
+      above: 20
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.livetest_strip
+"""
+
+
+async def test_live_fairgrow_switches_a_light(hass: HomeAssistant, live_session: aiohttp.ClientSession) -> None:
+    """Erik's test (0.3.0): share a sensor and a light, let FairGrow switch the light, take
+    the automation 'above 20 degrees: light on' over, switch it on, warm up the room.
+
+    The platform must queue light.turn_on, the integration must fetch and run it, and the
+    result must come back. B never sees A's commands."""
+    from pathlib import Path
+
+    from homeassistant.core import ServiceCall
+
+    a = _session("FG_LIVE_A_USER", "FG_LIVE_A_PW")
+    b = _session("FG_LIVE_B_USER", "FG_LIVE_B_PW")
+    api = URL + "/wp-json"
+
+    def call(s: requests.Session, method: str, path: str, **kw) -> requests.Response:
+        return s.request(method, api + path, timeout=60, **kw)
+
+    Path(hass.config.config_dir, "automations.yaml").write_text(LIVE_WARM, encoding="utf-8")
+    hass.states.async_set("sensor.livetest_temp", "18.0",
+                          {"device_class": "temperature", "unit_of_measurement": "°C", "friendly_name": "Livetest temp"})
+    hass.states.async_set("light.livetest_strip", "off", {"friendly_name": "Livetest strip"})
+    switched: list[ServiceCall] = []
+
+    async def _light(service: ServiceCall) -> None:
+        switched.append(service)
+        hass.states.async_set("light.livetest_strip", "on" if service.service == "turn_on" else "off",
+                              {"friendly_name": "Livetest strip"})
+
+    hass.services.async_register("light", "turn_on", _light)
+    hass.services.async_register("light", "turn_off", _light)
+
+    r = await hass.async_add_executor_job(lambda: call(a, "POST", "/fg-ha/v1/pair/new", json={}))
+    code = r.json()["code"]
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: code, "advanced": {CONF_URL: URL}})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        CONF_ENTITIES: ["sensor.livetest_temp"], "control": ["light.livetest_strip"],
+        "share_automations": True, "share_scripts": False})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    pusher = entry.runtime_data
+    genomen: list[int] = []
+    try:
+        assert pusher.control == ["light.livetest_strip"], pusher.control
+        assert pusher.stats["accepted_entities"] == 2, pusher.stats
+        # the HA entities are in the automation register under their real names
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-aut/v1/entiteiten"))
+        ents = {e["entity_id"]: e for e in r.json().get("entiteiten", r.json() if isinstance(r.json(), list) else [])}
+        assert "light.livetest_strip" in ents and int(ents["light.livetest_strip"]["stuurbaar"]) == 1, list(ents)[:20]
+        assert "sensor.livetest_temp" in ents
+
+        r = await hass.async_add_executor_job(lambda: call(a, "POST", "/fg-aut/v1/ha/overnemen", json={"ha_id": "livetest_warm_licht"}))
+        j = r.json()
+        print("OVERNEMEN", j)
+        assert j.get("opgeslagen"), j
+        aid = j["opgeslagen"][0]["id"]
+        genomen.append(aid)
+        r = await hass.async_add_executor_job(lambda: call(a, "POST", f"/fg-aut/v1/automations/{aid}/actief", json={"actief": 1}))
+        assert r.json().get("ok"), r.text
+        await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-aut/v1/standen", params={"bij": 1}))
+
+        # the room warms up
+        hass.states.async_set("sensor.livetest_temp", "22.5",
+                              {"device_class": "temperature", "unit_of_measurement": "°C", "friendly_name": "Livetest temp"})
+        await hass.async_block_till_done()
+        await pusher.async_flush(force=True)
+        for _ in range(6):
+            await pusher.async_commands()
+            await hass.async_block_till_done()
+            if switched:
+                break
+            await asyncio.sleep(2)
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-ha/v1/opdrachten"))
+        mijn = r.json()["opdrachten"]
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", f"/fg-aut/v1/automations/{aid}/log"))
+        print("OPDRACHTEN", mijn[:3], "LOG", r.text[:600], "STATS", pusher.stats)
+        assert switched and switched[0].service == "turn_on", pusher.stats
+        assert hass.states.get("light.livetest_strip").state == "on"
+        await pusher.async_commands()  # report the result if it was not yet
+        r = await hass.async_add_executor_job(lambda: call(a, "GET", "/fg-ha/v1/opdrachten"))
+        laatste = r.json()["opdrachten"][0]
+        assert laatste["entity_id"] == "light.livetest_strip" and laatste["state"] == "done", laatste
+
+        r = await hass.async_add_executor_job(lambda: call(b, "GET", "/fg-ha/v1/opdrachten"))
+        assert not any(o["entity_id"].startswith("light.livetest") for o in r.json()["opdrachten"])
+    finally:
+        for i in genomen:
+            await hass.async_add_executor_job(lambda i=i: call(a, "DELETE", f"/fg-aut/v1/automations/{i}"))
         await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()

@@ -24,13 +24,18 @@
       },
       "entities": {
         "title": "Choose what you share",
-        "description": "Tick the sensors FairGrow may see. Only these readings leave your Home Assistant, plus your automations and scripts if you switch that on below. You can change this later with Configure.",
+        "description": "Tick what FairGrow may see and what it may switch. Only what you tick here leaves your Home Assistant. You can change this later with Configure.",
         "data": {
-          "entities": "Sensors to share",
-          "share_automations": "Share my automations and scripts"
+          "entities": "Sensors, lights and switches to share",
+          "control": "Lights and switches FairGrow may switch",
+          "share_automations": "Share automations.yaml",
+          "share_scripts": "Share scripts.yaml"
         },
         "data_description": {
-          "share_automations": "FairGrow reads automations.yaml and scripts.yaml (read only, !secret values stay here) so you can take them over on fairgrow.eu. Taking over makes a copy there that starts switched off; nothing changes in Home Assistant."
+          "entities": "FairGrow sees the readings of these, and only whether a light or switch is on or off.",
+          "control": "Only these can be turned on, off or toggled by an automation on fairgrow.eu. Nothing else in your Home Assistant can be switched, and a command that arrives more than two minutes late is refused. What you tick here is shared as well.",
+          "share_automations": "Read only, so that you can take your automations over on fairgrow.eu. FairGrow reads this one file and nothing else; !secret values stay here. Taking over makes a copy there that starts switched off.",
+          "share_scripts": "Read only, the same way, for your scripts."
         }
       },
       "reauth_confirm": {
@@ -58,13 +63,18 @@
     "step": {
       "init": {
         "title": "What you share",
-        "description": "Tick the sensors FairGrow may see. Sensors you untick stop sending; their history on FairGrow stays.",
+        "description": "Tick what FairGrow may see and what it may switch. What you untick stops; its history on FairGrow stays.",
         "data": {
-          "entities": "Sensors to share",
-          "share_automations": "Share my automations and scripts"
+          "entities": "Sensors, lights and switches to share",
+          "control": "Lights and switches FairGrow may switch",
+          "share_automations": "Share automations.yaml",
+          "share_scripts": "Share scripts.yaml"
         },
         "data_description": {
-          "share_automations": "FairGrow reads automations.yaml and scripts.yaml (read only, !secret values stay here) so you can take them over on fairgrow.eu. Taking over makes a copy there that starts switched off; nothing changes in Home Assistant."
+          "entities": "FairGrow sees the readings of these, and only whether a light or switch is on or off.",
+          "control": "Only these can be turned on, off or toggled by an automation on fairgrow.eu. Nothing else in your Home Assistant can be switched, and a command that arrives more than two minutes late is refused. What you tick here is shared as well.",
+          "share_automations": "Read only, so that you can take your automations over on fairgrow.eu. FairGrow reads this one file and nothing else; !secret values stay here. Taking over makes a copy there that starts switched off.",
+          "share_scripts": "Read only, the same way, for your scripts."
         }
       }
     }

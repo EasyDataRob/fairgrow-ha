@@ -24,13 +24,18 @@
       },
       "entities": {
         "title": "Kies wat je deelt",
-        "description": "Vink de sensoren aan die FairGrow mag zien. Alleen deze metingen verlaten je Home Assistant, plus je automatiseringen en scripts als je dat hieronder aanzet. Later aanpassen kan met Configureren.",
+        "description": "Vink aan wat FairGrow mag zien en wat hij mag schakelen. Alleen wat je hier aanvinkt verlaat je Home Assistant. Later aanpassen kan met Configureren.",
         "data": {
-          "entities": "Sensoren om te delen",
-          "share_automations": "Deel mijn automatiseringen en scripts"
+          "entities": "Sensoren, lampen en schakelaars om te delen",
+          "control": "Lampen en schakelaars die FairGrow mag schakelen",
+          "share_automations": "Deel automations.yaml",
+          "share_scripts": "Deel scripts.yaml"
         },
         "data_description": {
-          "share_automations": "FairGrow leest automations.yaml en scripts.yaml (alleen lezen, !secret-waarden blijven hier) zodat je ze op fairgrow.eu kunt overnemen. Overnemen maakt daar een kopie die uit staat; in Home Assistant verandert niets."
+          "entities": "FairGrow ziet hiervan de metingen, en van een lamp of schakelaar alleen of hij aan of uit staat.",
+          "control": "Alleen deze kan een automatisering op fairgrow.eu aanzetten, uitzetten of omzetten. Niets anders in je Home Assistant is te schakelen, en een opdracht die meer dan twee minuten te laat binnenkomt wordt geweigerd. Wat je hier aanvinkt, wordt ook gedeeld.",
+          "share_automations": "Alleen lezen, zodat je je automatiseringen op fairgrow.eu kunt overnemen. FairGrow leest alleen dit bestand; !secret-waarden blijven hier. Overnemen maakt daar een kopie die uit staat.",
+          "share_scripts": "Alleen lezen, op dezelfde manier, voor je scripts."
         }
       },
       "reauth_confirm": {
@@ -58,13 +63,18 @@
     "step": {
       "init": {
         "title": "Wat je deelt",
-        "description": "Vink de sensoren aan die FairGrow mag zien. Sensoren die je uitvinkt stoppen met sturen; hun historie op FairGrow blijft staan.",
+        "description": "Vink aan wat FairGrow mag zien en wat hij mag schakelen. Wat je uitvinkt stopt; de historie op FairGrow blijft.",
         "data": {
-          "entities": "Sensoren om te delen",
-          "share_automations": "Deel mijn automatiseringen en scripts"
+          "entities": "Sensoren, lampen en schakelaars om te delen",
+          "control": "Lampen en schakelaars die FairGrow mag schakelen",
+          "share_automations": "Deel automations.yaml",
+          "share_scripts": "Deel scripts.yaml"
         },
         "data_description": {
-          "share_automations": "FairGrow leest automations.yaml en scripts.yaml (alleen lezen, !secret-waarden blijven hier) zodat je ze op fairgrow.eu kunt overnemen. Overnemen maakt daar een kopie die uit staat; in Home Assistant verandert niets."
+          "entities": "FairGrow ziet hiervan de metingen, en van een lamp of schakelaar alleen of hij aan of uit staat.",
+          "control": "Alleen deze kan een automatisering op fairgrow.eu aanzetten, uitzetten of omzetten. Niets anders in je Home Assistant is te schakelen, en een opdracht die meer dan twee minuten te laat binnenkomt wordt geweigerd. Wat je hier aanvinkt, wordt ook gedeeld.",
+          "share_automations": "Alleen lezen, zodat je je automatiseringen op fairgrow.eu kunt overnemen. FairGrow leest alleen dit bestand; !secret-waarden blijven hier. Overnemen maakt daar een kopie die uit staat.",
+          "share_scripts": "Alleen lezen, op dezelfde manier, voor je scripts."
         }
       }
     }

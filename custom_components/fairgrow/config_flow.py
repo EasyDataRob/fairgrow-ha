@@ -32,10 +32,13 @@ from .const import (
     CONF_ADVANCED,
     CONF_ADAPTER_ID,
     CONF_CODE,
+    CONF_CONTROL,
     CONF_ENTITIES,
     CONF_SHARE_AUTOMATIONS,
+    CONF_SHARE_SCRIPTS,
     CONF_TOKEN,
     CONF_URL,
+    CONTROL_DOMAINS,
     DEFAULT_URL,
     DOMAIN,
     SENSOR_DEVICE_CLASSES,
@@ -45,29 +48,44 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def share_schema(entities: list[str], share: bool) -> vol.Schema:
-    """The sensors to share, and whether the own automations and scripts go along.
+def share_schema(options: Mapping[str, Any]) -> vol.Schema:
+    """What to share, what FairGrow may switch, and whether automations and scripts go along.
 
-    Sharing automations is off unless the user ticks it: until 0.2.0 only the chosen
-    readings left Home Assistant, and an update must not change that by itself."""
+    Everything is off unless the user ticks it: until 0.2.0 only the chosen readings left
+    Home Assistant, and an update must not change that by itself. Up to 0.2.0 one box
+    covered automations and scripts together; whoever had it on keeps both on."""
+    share_aut = bool(options.get(CONF_SHARE_AUTOMATIONS, False))
     return vol.Schema(
         {
-            vol.Optional(CONF_ENTITIES, default=entities): entity_selector(),
-            vol.Optional(CONF_SHARE_AUTOMATIONS, default=share): BooleanSelector(),
+            vol.Optional(CONF_ENTITIES, default=list(options.get(CONF_ENTITIES, []))): entity_selector(),
+            vol.Optional(CONF_CONTROL, default=list(options.get(CONF_CONTROL, []))): control_selector(),
+            vol.Optional(CONF_SHARE_AUTOMATIONS, default=share_aut): BooleanSelector(),
+            vol.Optional(
+                CONF_SHARE_SCRIPTS, default=bool(options.get(CONF_SHARE_SCRIPTS, share_aut))
+            ): BooleanSelector(),
         }
     )
 
 
 def share_options(user_input: dict[str, Any]) -> dict[str, Any]:
-    """What the form gave back, as the options of the entry."""
+    """What the form gave back, as the options of the entry.
+
+    What FairGrow may switch is always shared too: an automation that turns a lamp on
+    needs to see that the lamp is on."""
+    control = [e for e in user_input.get(CONF_CONTROL, []) if e.split(".", 1)[0] in CONTROL_DOMAINS]
+    entities = list(user_input.get(CONF_ENTITIES, []))
+    entities += [e for e in control if e not in entities]
     return {
-        CONF_ENTITIES: list(user_input.get(CONF_ENTITIES, [])),
+        CONF_ENTITIES: entities,
+        CONF_CONTROL: control,
         CONF_SHARE_AUTOMATIONS: bool(user_input.get(CONF_SHARE_AUTOMATIONS, False)),
+        CONF_SHARE_SCRIPTS: bool(user_input.get(CONF_SHARE_SCRIPTS, False)),
     }
 
 
 def entity_selector() -> EntitySelector:
-    """Sensors and binary sensors with a device class FairGrow can use."""
+    """Sensors and binary sensors with a device class FairGrow can use, plus lights and
+    switches (their on/off state only)."""
     return EntitySelector(
         EntitySelectorConfig(
             multiple=True,
@@ -79,7 +97,18 @@ def entity_selector() -> EntitySelector:
                     domain="binary_sensor",
                     device_class=list(BINARY_SENSOR_DEVICE_CLASSES),
                 ),
+                EntityFilterSelectorConfig(domain=list(CONTROL_DOMAINS)),
             ],
+        )
+    )
+
+
+def control_selector() -> EntitySelector:
+    """Lights and switches FairGrow may turn on and off."""
+    return EntitySelector(
+        EntitySelectorConfig(
+            multiple=True,
+            filter=[EntityFilterSelectorConfig(domain=list(CONTROL_DOMAINS))],
         )
     )
 
@@ -159,7 +188,7 @@ class FairGrowConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         return self.async_show_form(
             step_id="entities",
-            data_schema=share_schema([], False),
+            data_schema=share_schema({}),
         )
 
     async def async_step_reauth(
@@ -198,7 +227,7 @@ class FairGrowConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FairGrowOptionsFlow(OptionsFlow):
-    """Choose the shared entities again, and whether automations go along."""
+    """Choose again what is shared and what FairGrow may switch."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -206,11 +235,7 @@ class FairGrowOptionsFlow(OptionsFlow):
         """One step: the same form, filled with the current choice."""
         if user_input is not None:
             return self.async_create_entry(data=share_options(user_input))
-        options = self.config_entry.options
         return self.async_show_form(
             step_id="init",
-            data_schema=share_schema(
-                list(options.get(CONF_ENTITIES, [])),
-                bool(options.get(CONF_SHARE_AUTOMATIONS, False)),
-            ),
+            data_schema=share_schema(self.config_entry.options),
         )

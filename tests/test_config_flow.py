@@ -14,7 +14,9 @@ from custom_components.fairgrow.const import (
     CONF_ADAPTER_ID,
     CONF_CODE,
     CONF_ENTITIES,
+    CONF_CONTROL,
     CONF_SHARE_AUTOMATIONS,
+    CONF_SHARE_SCRIPTS,
     CONF_TOKEN,
     CONF_URL,
     DEFAULT_URL,
@@ -41,7 +43,8 @@ async def test_flow_pairs_and_chooses_entities(hass: HomeAssistant) -> None:
     assert result["title"] == "Home Assistant Thuis"
     assert result["data"] == {CONF_URL: DEFAULT_URL, CONF_TOKEN: "t" * 48, CONF_ADAPTER_ID: 41}
     # Sharing automations is never on unless the user ticks it.
-    assert result["options"] == {CONF_ENTITIES: ["sensor.kas_temp"], CONF_SHARE_AUTOMATIONS: False}
+    assert result["options"] == {CONF_ENTITIES: ["sensor.kas_temp"], CONF_CONTROL: [],
+                                 CONF_SHARE_AUTOMATIONS: False, CONF_SHARE_SCRIPTS: False}
 
 
 async def test_flow_code_errors(hass: HomeAssistant) -> None:
@@ -76,7 +79,8 @@ async def test_options_flow_changes_entities(hass: HomeAssistant) -> None:
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {CONF_ENTITIES: ["sensor.a", "binary_sensor.deur"]})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {CONF_ENTITIES: ["sensor.a", "binary_sensor.deur"], CONF_SHARE_AUTOMATIONS: False}
+    assert entry.options == {CONF_ENTITIES: ["sensor.a", "binary_sensor.deur"], CONF_CONTROL: [],
+                             CONF_SHARE_AUTOMATIONS: False, CONF_SHARE_SCRIPTS: False}
 
 
 async def test_options_flow_switches_on_automations_and_keeps_it(hass: HomeAssistant) -> None:
@@ -88,7 +92,8 @@ async def test_options_flow_switches_on_automations_and_keeps_it(hass: HomeAssis
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {CONF_ENTITIES: ["sensor.a"], CONF_SHARE_AUTOMATIONS: True})
-        assert entry.options == {CONF_ENTITIES: ["sensor.a"], CONF_SHARE_AUTOMATIONS: True}
+        assert entry.options == {CONF_ENTITIES: ["sensor.a"], CONF_CONTROL: [],
+                                 CONF_SHARE_AUTOMATIONS: True, CONF_SHARE_SCRIPTS: False}
         result = await hass.config_entries.options.async_init(entry.entry_id)
         schema = result["data_schema"].schema
         default = next(k.default() for k in schema if k == CONF_SHARE_AUTOMATIONS)

@@ -9,6 +9,9 @@ Why the files and not the loaded automations: Home Assistant fills in `!secret` 
 files are read with a loader that keeps every tag as literal text (`!secret wifi_pw`), so
 a secret never leaves Home Assistant. Automations made in the UI all live in these two
 files; whatever sits in packages or other includes is counted as not shared.
+
+Since 0.3.0 each file has its own tick box: many users only want automations.yaml to go.
+A file whose box is off is not even opened, and is reported as "not shared".
 """
 
 from __future__ import annotations
@@ -56,10 +59,14 @@ def _plain(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
-def fingerprint(config_dir: str) -> str:
-    """Changes when either file changes; cheap enough to check every minute."""
+def _names(automations: bool, scripts: bool) -> list[str]:
+    return [n for n, on in ((AUTOMATION_FILE, automations), (SCRIPT_FILE, scripts)) if on]
+
+
+def fingerprint(config_dir: str, automations: bool = True, scripts: bool = True) -> str:
+    """Changes when a shared file changes; cheap enough to check every minute."""
     parts = []
-    for name in (AUTOMATION_FILE, SCRIPT_FILE):
+    for name in _names(automations, scripts):
         try:
             st = os.stat(os.path.join(config_dir, name))
             parts.append(f"{name}:{st.st_mtime_ns}:{st.st_size}")
@@ -68,12 +75,15 @@ def fingerprint(config_dir: str) -> str:
     return "|".join(parts)
 
 
-def read_all(config_dir: str) -> dict[str, Any]:
+def read_all(config_dir: str, automations: bool = True, scripts: bool = True) -> dict[str, Any]:
     """The payload for POST /automations. Runs in the executor (file I/O)."""
     items: list[dict[str, Any]] = []
     sources: dict[str, str] = {}
 
-    data, sources[AUTOMATION_FILE] = _load(os.path.join(config_dir, AUTOMATION_FILE))
+    if automations:
+        data, sources[AUTOMATION_FILE] = _load(os.path.join(config_dir, AUTOMATION_FILE))
+    else:
+        data, sources[AUTOMATION_FILE] = None, "not shared"
     if data is not None and not isinstance(data, list):
         sources[AUTOMATION_FILE] = "error: not a list"
         data = None
@@ -92,7 +102,10 @@ def read_all(config_dir: str) -> dict[str, Any]:
             }
         )
 
-    data, sources[SCRIPT_FILE] = _load(os.path.join(config_dir, SCRIPT_FILE))
+    if scripts:
+        data, sources[SCRIPT_FILE] = _load(os.path.join(config_dir, SCRIPT_FILE))
+    else:
+        data, sources[SCRIPT_FILE] = None, "not shared"
     if data is not None and not isinstance(data, dict):
         sources[SCRIPT_FILE] = "error: not a mapping"
         data = None
